@@ -1,0 +1,191 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Mxwll Capital
+//@version=5
+strategy("MxwllSuiteStrategyPrototype", overlay = true, pyramiding = 0, max_bars_back = 500, max_labels_count = 200, max_lines_count = 200, process_orders_on_close = true)
+
+bullC   = input.color(defval = #14D990, title = "Bull Color", group = "Visuals", inline = "1")
+bearC   = input.color(defval = #F24968, title = "Bear Color", group = "Visuals", inline = "1")
+showExt = input.bool(defval = true, title = "Show External Structure", group = "Visuals")
+extSens = input.int(25, "Externals Sensitivity", options = [10, 25, 50], group = "Visuals")
+
+tradeLongs      = input.bool(true, "Enable Longs", group = "Strategy")
+tradeShorts     = input.bool(true, "Enable Shorts", group = "Strategy")
+entryMode       = input.string("Both", "External Entry Type", options = ["BoS", "CHoCH", "Both"], group = "Strategy")
+sessionFilter   = input.string("London + New York", "Session Filter", options = ["All", "London", "New York", "London + New York"], group = "Strategy")
+stopMode        = input.string("Structure Level", "Stop Loss Mode", options = ["Signal Candle", "Structure Level"], group = "Strategy")
+targetFib       = input.string("0.5", "Fib Extension Target", options = ["0.236", "0.382", "0.5", "0.618", "0.786"], group = "Strategy")
+minRR           = input.float(1.5, "Minimum R:R", minval = 0.1, step = 0.1, group = "Strategy")
+bufferTicks     = input.int(2, "Structure Stop Buffer Ticks", minval = 0, group = "Strategy")
+
+var highArr = array.new_float()
+var lowArr  = array.new_float()
+
+highArr.unshift(high)
+lowArr.unshift(low)
+
+targetFibValue = switch targetFib
+    "0.236" => 0.236
+    "0.382" => 0.382
+    "0.5"   => 0.5
+    "0.618" => 0.618
+    =>         0.786
+
+calculatePivots(length) =>
+    var int intraCalc = 0
+
+    topSwing = 0.0
+    botSwing = 0.0
+
+    if bar_index > length + 1
+        up = highArr.slice(0, length).max()
+        dn = lowArr.slice(0, length).min()
+
+        cHi = highArr.get(length)
+        cLo = lowArr.get(length)
+
+        intraCalc := switch
+            cHi > up => 0
+            cLo < dn => 1
+            =>         intraCalc[1]
+
+        topSwing := switch
+            intraCalc == 0 and intraCalc[1] != 0 => cHi
+            =>                                      0
+
+        botSwing := switch
+            intraCalc == 1 and intraCalc[1] != 1 => cLo
+            =>                                      0
+
+    [topSwing, botSwing]
+
+[bigUpper, bigLower] = calculatePivots(extSens)
+
+var float upaxis   = 0.0
+var float dnaxis   = 0.0
+var float upside   = 1.0
+var float downside = 1.0
+var float moving   = 0.0
+var int upaxis2    = 0
+var int dnaxis2    = 0
+
+drawChar(x, y, txt, col, down) =>
+    style = down ? label.style_label_down : label.style_label_up
+    line.new(int(x), y, bar_index, y, color = col, style = line.style_dashed)
+    label.new(math.round(math.avg(x, bar_index)), y, txt, color = #00000000, textcolor = col, style = style, size = size.small)
+
+sessionIsAllowed() =>
+    nyHour = hour(time, "America/New_York")
+    nyMinute = minute(time, "America/New_York")
+
+    timeIsInRange(startHour, startMinute, endHour, endMinute) =>
+        if endHour >= startHour
+            (nyHour > startHour or (nyHour == startHour and nyMinute >= startMinute)) and (nyHour < endHour or (nyHour == endHour and nyMinute <= endMinute))
+        else
+            (nyHour > startHour or (nyHour == startHour and nyMinute >= startMinute)) or (nyHour < endHour or (nyHour == endHour and nyMinute <= endMinute))
+
+    london = timeIsInRange(3, 0, 11, 30)
+    newYork = timeIsInRange(9, 30, 16, 0)
+
+    switch sessionFilter
+        "All"              => true
+        "London"           => london
+        "New York"         => newYork
+        "London + New York" => london or newYork
+        =>                    true
+
+matchesEntryType(signalType) =>
+    entryMode == "Both" or entryMode == signalType
+
+calcLongTarget(breakLevel, swingLow) =>
+    range = breakLevel - swingLow
+    breakLevel + range * targetFibValue
+
+calcShortTarget(breakLevel, swingHigh) =>
+    range = swingHigh - breakLevel
+    breakLevel - range * targetFibValue
+
+extBullSignal = false
+extBearSignal = false
+extBullType = ""
+extBearType = ""
+
+bullBreakLevel = na
+bearBreakLevel = na
+bullSwingLow = na
+bearSwingHigh = na
+bullSignalStop = na
+bearSignalStop = na
+
+if bigUpper != 0
+    upside := 1
+    upaxis := bigUpper
+    upaxis2 := bar_index - extSens
+
+if bigLower != 0
+    downside := 1
+    dnaxis := bigLower
+    dnaxis2 := bar_index - extSens
+
+if showExt and ta.crossover(close, upaxis)
+    if upside != 0
+        extBullType := moving < 0 ? "CHoCH" : "BoS"
+
+        if matchesEntryType(extBullType)
+            if showExt
+                drawChar(upaxis2, upaxis, extBullType, bullC, true)
+            extBullSignal := true
+            bullBreakLevel := upaxis
+            bullSwingLow := dnaxis
+            bullSignalStop := low
+
+        upside := 0
+        moving := 1
+
+if showExt and ta.crossunder(close, dnaxis)
+    if downside != 0
+        extBearType := moving > 0 ? "CHoCH" : "BoS"
+
+        if matchesEntryType(extBearType)
+            if showExt
+                drawChar(dnaxis2, dnaxis, extBearType, bearC, false)
+            extBearSignal := true
+            bearBreakLevel := dnaxis
+            bearSwingHigh := upaxis
+            bearSignalStop := high
+
+        downside := 0
+        moving := -1
+
+longStop = stopMode == "Signal Candle" ? bullSignalStop : bullBreakLevel - syminfo.mintick * bufferTicks
+shortStop = stopMode == "Signal Candle" ? bearSignalStop : bearBreakLevel + syminfo.mintick * bufferTicks
+
+longTarget = calcLongTarget(bullBreakLevel, bullSwingLow)
+shortTarget = calcShortTarget(bearBreakLevel, bearSwingHigh)
+
+longRisk = close - longStop
+shortRisk = shortStop - close
+
+longReward = longTarget - close
+shortReward = close - shortTarget
+
+longRR = longReward / longRisk
+shortRR = shortReward / shortRisk
+
+canLong = tradeLongs and extBullSignal and sessionIsAllowed() and not na(bullBreakLevel) and not na(bullSwingLow) and bullSwingLow < bullBreakLevel and longStop < close and longTarget > close and longRisk > 0 and longRR >= minRR
+canShort = tradeShorts and extBearSignal and sessionIsAllowed() and not na(bearBreakLevel) and not na(bearSwingHigh) and bearSwingHigh > bearBreakLevel and shortStop > close and shortTarget < close and shortRisk > 0 and shortRR >= minRR
+
+if canLong
+    strategy.entry("Long", strategy.long, comment = "External " + extBullType)
+    strategy.exit("Long Exit", "Long", stop = longStop, limit = longTarget, comment_profit = "Fib TP", comment_loss = "SL")
+
+if canShort
+    strategy.entry("Short", strategy.short, comment = "External " + extBearType)
+    strategy.exit("Short Exit", "Short", stop = shortStop, limit = shortTarget, comment_profit = "Fib TP", comment_loss = "SL")
+
+plot(strategy.position_size > 0 ? longStop : na, "Long Stop", color = color.new(bearC, 0), style = plot.style_linebr)
+plot(strategy.position_size > 0 ? longTarget : na, "Long Target", color = color.new(bullC, 0), style = plot.style_linebr)
+plot(strategy.position_size < 0 ? shortStop : na, "Short Stop", color = color.new(bullC, 0), style = plot.style_linebr)
+plot(strategy.position_size < 0 ? shortTarget : na, "Short Target", color = color.new(bearC, 0), style = plot.style_linebr)
+
+plotshape(canLong, title = "Long Signal", style = shape.triangleup, location = location.belowbar, size = size.tiny, color = bullC)
+plotshape(canShort, title = "Short Signal", style = shape.triangledown, location = location.abovebar, size = size.tiny, color = bearC)
