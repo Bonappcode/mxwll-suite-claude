@@ -1,6 +1,6 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // Mxwll Capital
-//@version=5
+//@version=6
 strategy("MxwllSuiteStrategyPrototype", overlay = true, pyramiding = 0, max_bars_back = 500, max_labels_count = 200, max_lines_count = 200, process_orders_on_close = true)
 
 bullC   = input.color(defval = #14D990, title = "Bull Color", group = "Visuals", inline = "1")
@@ -73,18 +73,18 @@ drawChar(x, y, txt, col, down) =>
     line.new(int(x), y, bar_index, y, color = col, style = line.style_dashed)
     label.new(math.round(math.avg(x, bar_index)), y, txt, color = #00000000, textcolor = col, style = style, size = size.small)
 
+timeIsInRange(nyHour, nyMinute, startHour, startMinute, endHour, endMinute) =>
+    if endHour >= startHour
+        (nyHour > startHour or (nyHour == startHour and nyMinute >= startMinute)) and (nyHour < endHour or (nyHour == endHour and nyMinute <= endMinute))
+    else
+        (nyHour > startHour or (nyHour == startHour and nyMinute >= startMinute)) or (nyHour < endHour or (nyHour == endHour and nyMinute <= endMinute))
+
 sessionIsAllowed() =>
     nyHour = hour(time, "America/New_York")
     nyMinute = minute(time, "America/New_York")
 
-    timeIsInRange(startHour, startMinute, endHour, endMinute) =>
-        if endHour >= startHour
-            (nyHour > startHour or (nyHour == startHour and nyMinute >= startMinute)) and (nyHour < endHour or (nyHour == endHour and nyMinute <= endMinute))
-        else
-            (nyHour > startHour or (nyHour == startHour and nyMinute >= startMinute)) or (nyHour < endHour or (nyHour == endHour and nyMinute <= endMinute))
-
-    london = timeIsInRange(3, 0, 11, 30)
-    newYork = timeIsInRange(9, 30, 16, 0)
+    london = timeIsInRange(nyHour, nyMinute, 3, 0, 11, 30)
+    newYork = timeIsInRange(nyHour, nyMinute, 9, 30, 16, 0)
 
     switch sessionFilter
         "All"              => true
@@ -97,24 +97,24 @@ matchesEntryType(signalType) =>
     entryMode == "Both" or entryMode == signalType
 
 calcLongTarget(breakLevel, swingLow) =>
-    range = breakLevel - swingLow
-    breakLevel + range * targetFibValue
+    moveSize = breakLevel - swingLow
+    breakLevel + moveSize * targetFibValue
 
 calcShortTarget(breakLevel, swingHigh) =>
-    range = swingHigh - breakLevel
-    breakLevel - range * targetFibValue
+    moveSize = swingHigh - breakLevel
+    breakLevel - moveSize * targetFibValue
 
 extBullSignal = false
 extBearSignal = false
 extBullType = ""
 extBearType = ""
 
-bullBreakLevel = na
-bearBreakLevel = na
-bullSwingLow = na
-bearSwingHigh = na
-bullSignalStop = na
-bearSignalStop = na
+float bullBreakLevel = na
+float bearBreakLevel = na
+float bullSwingLow = na
+float bearSwingHigh = na
+float bullSignalStop = na
+float bearSignalStop = na
 
 if bigUpper != 0
     upside := 1
