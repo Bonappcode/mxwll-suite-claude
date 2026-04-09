@@ -49,6 +49,7 @@ alertExtBear = input.bool(defval = true, title = "External Bearish (BoS/CHoCH)",
 alertIntBull = input.bool(defval = true, title = "Internal Bullish (BoS/CHoCH)", group = "Alerts")
 alertIntBear = input.bool(defval = true, title = "Internal Bearish (BoS/CHoCH)", group = "Alerts")
 alertOBMit   = input.bool(defval = true, title = "Order Block Mitigation",        group = "Alerts")
+alertAllInOne = input.bool(defval = true, title = "Use Single Combined Alert", group = "Alerts")
 
 var bigData = map.new<string, float>()
 
@@ -336,6 +337,10 @@ drawChar(x, y, str, col, down) =>
 drawStructureExt() => 
 
     var int counter = 0
+    extBullSignal = false
+    extBearSignal = false
+    extBullType = ""
+    extBearType = ""
 
     if bigUpper != 0
         bigData.put("upside", 1)
@@ -403,10 +408,12 @@ drawStructureExt() =>
                     true => extStru != "BoS"   ? 'CHoCH' : "" 
                     =>      extStru != 'CHoCH' ? 'BoS'   : ""
 
-                if extStru == "All" or str.contains(extStru, str)
+                matchesExt = str != "" and (extStru == "All" or (extStru == "BoS" and str == "BoS") or (extStru == "CHoCH" and str == "CHoCH"))
+
+                if matchesExt
                     drawChar(bigData.get("upaxis2"), bigData.get("upaxis"), str, bullC, true)
-                    if alertExtBull and str != ""
-                        alert("External Bullish " + str + " | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+                    extBullSignal := true
+                    extBullType := str
 
                 bigData.put("upside", 0)
                 bigData.put("moving", 1)
@@ -420,17 +427,19 @@ drawStructureExt() =>
                     true => extStru != "BoS"   ? 'CHoCH' : "" 
                     =>      extStru != 'CHoCH' ? 'BoS'   : ""
 
-                if extStru == "All" or str.contains(extStru, str)
+                matchesExt = str != "" and (extStru == "All" or (extStru == "BoS" and str == "BoS") or (extStru == "CHoCH" and str == "CHoCH"))
+
+                if matchesExt
                     drawChar(bigData.get("dnaxis2"), bigData.get("dnaxis"), str, bearC, false)
-                    if alertExtBear and str != ""
-                        alert("External Bearish " + str + " | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+                    extBearSignal := true
+                    extBearType := str
 
                 bigData.put("downside", 0)
                 bigData.put("moving", -1)
 
-    counter 
+    [counter, extBullSignal, extBearSignal, extBullType, extBearType]
 
-counter = drawStructureExt()
+[counter, extBullSignal, extBearSignal, extBullType, extBearType] = drawStructureExt()
 
 method updateBox(array<box> id) =>
 
@@ -439,6 +448,8 @@ method updateBox(array<box> id) =>
             id.get(i).set_right(last_bar_index + 5)
 
 method cleanseLevel(array<box> id, bool isHighBlock) => 
+
+    mitigated = false
 
     if id.size() > 0   
 
@@ -450,16 +461,17 @@ method cleanseLevel(array<box> id, bool isHighBlock) =>
                 =>      close <= id.get(i).get_bottom()
 
             if condition
-                if alertOBMit
-                    alert("Order Block Mitigated | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+                mitigated := true
                 id.remove(i).delete()
 
         if id.size() > showLast and showLast != 0
             for i = id.size() - showLast to 0 
                 id.remove(i).delete()
 
-highBlock.cleanseLevel(true)
-lowBlock .cleanseLevel(false)
+    mitigated
+
+highBlockMitigated = highBlock.cleanseLevel(true)
+lowBlockMitigated  = lowBlock .cleanseLevel(false)
 
 if barstate.islast
 
@@ -588,6 +600,10 @@ drawFibs()
 drawStructureInternals() => 
 
     if showInt
+        intBullSignal = false
+        intBearSignal = false
+        intBullType = ""
+        intBearType = ""
         
         var keyValues = map.new<string, float>()
 
@@ -615,11 +631,13 @@ drawStructureInternals() =>
                     keyValues.get("movingSmall") < 0 =>     intStru != "BoS"   ? 'I-CHoCH' : "" 
                     =>                                      intStru != "CHoCH" ? 'I-BoS'   : ""
 
-                if intStru == "All" or str.contains(str, intStru)
+                matchesInt = str != "" and (intStru == "All" or (intStru == "BoS" and str == "I-BoS") or (intStru == "CHoCH" and str == "I-CHoCH"))
+
+                if matchesInt
 
                     drawChar(keyValues.get("upaxis2Small"), keyValues.get("upaxisSmall"), str, bullC, true)
-                    if alertIntBull and str != ""
-                        alert("Internal Bullish " + str + " | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+                    intBullSignal := true
+                    intBullType := str
 
                 keyValues.put("upsideSmall", 0)
                 keyValues.put("movingSmall", 1)
@@ -632,17 +650,56 @@ drawStructureInternals() =>
                     keyValues.get("movingSmall") > 0 => intStru != "BoS"   ? 'I-CHoCH' : ""
                     =>                                  intStru != "CHoCH" ? 'I-BoS'   : ""
 
-                if intStru == "All" or str.contains(str, intStru)
+                matchesInt = str != "" and (intStru == "All" or (intStru == "BoS" and str == "I-BoS") or (intStru == "CHoCH" and str == "I-CHoCH"))
+
+                if matchesInt
 
                     drawChar(keyValues.get("dnaxis2Small"), keyValues.get("dnaxisSmall"), str, bearC, false)
-                    if alertIntBear and str != ""
-                        alert("Internal Bearish " + str + " | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick), alert.freq_once_per_bar_close)
+                    intBearSignal := true
+                    intBearType := str
 
                 keyValues.put("downsideSmall", 0)
                 keyValues.put("movingSmall", -1)
 
+        [intBullSignal, intBearSignal, intBullType, intBearType]
 
-drawStructureInternals()
+    else
+        [false, false, "", ""]
+
+[intBullSignal, intBearSignal, intBullType, intBearType] = drawStructureInternals()
+
+intBullAlertType = intBullType == "I-BoS" ? "BoS" : intBullType == "I-CHoCH" ? "CHoCH" : intBullType
+intBearAlertType = intBearType == "I-BoS" ? "BoS" : intBearType == "I-CHoCH" ? "CHoCH" : intBearType
+
+combinedAlertMessage = ""
+
+if alertAllInOne
+    if alertExtBull and extBullSignal
+        combinedAlertMessage := "External Bullish " + extBullType + " | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick)
+    if alertExtBear and extBearSignal
+        combinedAlertMessage := combinedAlertMessage == "" ? "External Bearish " + extBearType + " | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick) : combinedAlertMessage + "\n" + "External Bearish " + extBearType + " | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick)
+    if alertIntBull and intBullSignal
+        combinedAlertMessage := combinedAlertMessage == "" ? "Internal Bullish " + intBullAlertType + " | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick) : combinedAlertMessage + "\n" + "Internal Bullish " + intBullAlertType + " | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick)
+    if alertIntBear and intBearSignal
+        combinedAlertMessage := combinedAlertMessage == "" ? "Internal Bearish " + intBearAlertType + " | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick) : combinedAlertMessage + "\n" + "Internal Bearish " + intBearAlertType + " | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick)
+    if alertOBMit and highBlockMitigated
+        combinedAlertMessage := combinedAlertMessage == "" ? "Bearish Order Block Mitigated | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick) : combinedAlertMessage + "\n" + "Bearish Order Block Mitigated | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick)
+    if alertOBMit and lowBlockMitigated
+        combinedAlertMessage := combinedAlertMessage == "" ? "Bullish Order Block Mitigated | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick) : combinedAlertMessage + "\n" + "Bullish Order Block Mitigated | " + syminfo.ticker + " | Price: " + str.tostring(close, format.mintick)
+
+if combinedAlertMessage != ""
+    alert(combinedAlertMessage, alert.freq_once_per_bar_close)
+
+alertcondition(alertExtBull and extBullSignal and extBullType == "BoS", "External Bullish BoS", "External bullish BoS on {{ticker}} at {{close}}")
+alertcondition(alertExtBull and extBullSignal and extBullType == "CHoCH", "External Bullish CHoCH", "External bullish CHoCH on {{ticker}} at {{close}}")
+alertcondition(alertExtBear and extBearSignal and extBearType == "BoS", "External Bearish BoS", "External bearish BoS on {{ticker}} at {{close}}")
+alertcondition(alertExtBear and extBearSignal and extBearType == "CHoCH", "External Bearish CHoCH", "External bearish CHoCH on {{ticker}} at {{close}}")
+alertcondition(alertIntBull and intBullSignal and intBullType == "I-BoS", "Internal Bullish BoS", "Internal bullish BoS on {{ticker}} at {{close}}")
+alertcondition(alertIntBull and intBullSignal and intBullType == "I-CHoCH", "Internal Bullish CHoCH", "Internal bullish CHoCH on {{ticker}} at {{close}}")
+alertcondition(alertIntBear and intBearSignal and intBearType == "I-BoS", "Internal Bearish BoS", "Internal bearish BoS on {{ticker}} at {{close}}")
+alertcondition(alertIntBear and intBearSignal and intBearType == "I-CHoCH", "Internal Bearish CHoCH", "Internal bearish CHoCH on {{ticker}} at {{close}}")
+alertcondition(alertOBMit and highBlockMitigated, "Bearish Order Block Mitigated", "Bearish order block mitigated on {{ticker}} at {{close}}")
+alertcondition(alertOBMit and lowBlockMitigated, "Bullish Order Block Mitigated", "Bullish order block mitigated on {{ticker}} at {{close}}")
 
 
 drawAOE() => 
